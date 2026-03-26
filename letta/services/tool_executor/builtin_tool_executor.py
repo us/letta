@@ -449,6 +449,15 @@ class LettaBuiltinToolExecutor(ToolExecutor):
             JSON-encoded string with scraped content and metadata.
         """
         import aiohttp
+        from urllib.parse import urlparse
+
+        # Validate URL scheme - only HTTP and HTTPS are supported
+        parsed_url = urlparse(url)
+        if parsed_url.scheme.lower() not in ("http", "https"):
+            return json.dumps(
+                {"success": False, "error": f"Invalid URL scheme '{parsed_url.scheme}'. Only 'http' and 'https' URLs are supported."},
+                ensure_ascii=False,
+            )
 
         crw_base_url, headers = self._get_crw_config(agent_state)
 
@@ -509,6 +518,15 @@ class LettaBuiltinToolExecutor(ToolExecutor):
             JSON-encoded string with crawl results or job status.
         """
         import aiohttp
+        from urllib.parse import urlparse
+
+        # Validate URL scheme - only HTTP and HTTPS are supported
+        parsed_url = urlparse(url)
+        if parsed_url.scheme.lower() not in ("http", "https"):
+            return json.dumps(
+                {"success": False, "error": f"Invalid URL scheme '{parsed_url.scheme}'. Only 'http' and 'https' URLs are supported."},
+                ensure_ascii=False,
+            )
 
         crw_base_url, headers = self._get_crw_config(agent_state)
 
@@ -549,6 +567,12 @@ class LettaBuiltinToolExecutor(ToolExecutor):
                         headers=headers,
                         timeout=aiohttp.ClientTimeout(total=30),
                     ) as status_resp:
+                        if status_resp.status != 200:
+                            raw_body = await status_resp.text()
+                            return json.dumps(
+                                {"success": False, "error": f"CRW crawl status check failed with status {status_resp.status}", "body": raw_body},
+                                ensure_ascii=False,
+                            )
                         status_result = await status_resp.json()
                         status = status_result.get("status", "")
 
@@ -596,6 +620,15 @@ class LettaBuiltinToolExecutor(ToolExecutor):
             JSON-encoded string with discovered URLs.
         """
         import aiohttp
+        from urllib.parse import urlparse
+
+        # Validate URL scheme - only HTTP and HTTPS are supported
+        parsed_url = urlparse(url)
+        if parsed_url.scheme.lower() not in ("http", "https"):
+            return json.dumps(
+                {"success": False, "error": f"Invalid URL scheme '{parsed_url.scheme}'. Only 'http' and 'https' URLs are supported."},
+                ensure_ascii=False,
+            )
 
         crw_base_url, headers = self._get_crw_config(agent_state)
 

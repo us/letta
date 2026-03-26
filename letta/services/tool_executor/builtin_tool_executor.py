@@ -34,6 +34,9 @@ class LettaBuiltinToolExecutor(ToolExecutor):
             "run_code_with_tools": self.run_code_with_tools,
             "web_search": self.web_search,
             "fetch_webpage": self.fetch_webpage,
+            "crw_scrape": self.crw_scrape,
+            "crw_crawl": self.crw_crawl,
+            "crw_map": self.crw_map,
         }
 
         if function_name not in function_map:
@@ -397,3 +400,260 @@ class LettaBuiltinToolExecutor(ToolExecutor):
             raise Exception(f"Error fetching webpage: {str(e)}")
         except Exception as e:
             raise Exception(f"Unexpected error: {str(e)}")
+
+    def _get_crw_config(self, agent_state: "AgentState") -> tuple:
+        """Get CRW base URL and API key from agent env vars or tool settings.
+
+        Returns:
+            tuple: (base_url, headers) for CRW API requests.
+        """
+        agent_env_vars = agent_state.get_agent_env_vars_as_dict()
+        crw_base_url = agent_env_vars.get("CRW_BASE_URL") or tool_settings.crw_base_url
+        crw_api_key = agent_env_vars.get("CRW_API_KEY") or tool_settings.crw_api_key
+
+        if not crw_base_url:
+            raise ValueError(
+                "CRW_BASE_URL is not set. Configure it in environment variables, tool settings, "
+                "or agent environment variables. CRW is an open-source web scraper: https://github.com/crw-org/crw"
+            )
+
+        # Strip trailing slash
+        crw_base_url = crw_base_url.rstrip("/")
+
+        headers = {"Content-Type": "application/json"}
+        if crw_api_key:
+            headers["Authorization"] = f"Bearer {crw_api_key}"
+
+        return crw_base_url, headers
+
+    @trace_method
+    async def crw_scrape(
+        self,
+        agent_state: "AgentState",
+        url: str,
+        formats: Optional[List[str]] = None,
+        only_main_content: bool = True,
+        css_selector: Optional[str] = None,
+    ) -> str:
+        """
+        Scrape a single web page using CRW.
+
+        Args:
+            agent_state: The current agent state.
+            url: The URL to scrape.
+            formats: Output formats (e.g., ["markdown", "html", "links"]).
+            only_main_content: Strip navigation, footer, sidebar.
+            css_selector: CSS selector to extract only matching elements.
+
+        Returns:
+            JSON-encoded string with scraped content and metadata.
+        """
+        import aiohttp
+        from urllib.parse import urlparse
+
+        # Validate URL scheme - only HTTP and HTTPS are supported
+        parsed_url = urlparse(url)
+        if parsed_url.scheme.lower() not in ("http", "https"):
+            return json.dumps(
+                {"success": False, "error": f"Invalid URL scheme '{parsed_url.scheme}'. Only 'http' and 'https' URLs are supported."},
+                ensure_ascii=False,
+            )
+
+        crw_base_url, headers = self._get_crw_config(agent_state)
+
+        payload = {
+            "url": url,
+            "onlyMainContent": only_main_content,
+        }
+        if formats:
+            payload["formats"] = formats
+        if css_selector:
+            payload["cssSelector"] = css_selector
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{crw_base_url}/v1/scrape",
+                    json=payload,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=120),
+                ) as resp:
+                    result = await resp.json()
+
+                    if resp.status != 200:
+                        error_msg = result.get("error", f"CRW scrape failed with status {resp.status}")
+                        return json.dumps({"success": False, "error": error_msg}, ensure_ascii=False)
+
+                    return json.dumps(result, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            logger.error(f"CRW scrape failed for URL '{url}': {str(e)}")
+            return json.dumps({"success": False, "error": f"CRW scrape failed: {str(e)}"}, ensure_ascii=False)
+
+    @trace_method
+    async def crw_crawl(
+        self,
+        agent_state: "AgentState",
+        url: str,
+        max_depth: int = 2,
+        max_pages: int = 100,
+        formats: Optional[List[str]] = None,
+        only_main_content: bool = True,
+    ) -> str:
+        """
+        Crawl a website starting from a URL using CRW.
+
+        Starts a crawl job and polls for completion. If the crawl completes within
+        the timeout, returns the full results. Otherwise, returns the job ID and status.
+
+        Args:
+            agent_state: The current agent state.
+            url: The starting URL to crawl.
+            max_depth: Maximum link-follow depth.
+            max_pages: Maximum number of pages to scrape.
+            formats: Output formats for each page.
+            only_main_content: Strip boilerplate from each page.
+
+        Returns:
+            JSON-encoded string with crawl results or job status.
+        """
+        import aiohttp
+        from urllib.parse import urlparse
+
+        # Validate URL scheme - only HTTP and HTTPS are supported
+        parsed_url = urlparse(url)
+        if parsed_url.scheme.lower() not in ("http", "https"):
+            return json.dumps(
+                {"success": False, "error": f"Invalid URL scheme '{parsed_url.scheme}'. Only 'http' and 'https' URLs are supported."},
+                ensure_ascii=False,
+            )
+
+        crw_base_url, headers = self._get_crw_config(agent_state)
+
+        payload = {
+            "url": url,
+            "maxDepth": max_depth,
+            "maxPages": max_pages,
+            "onlyMainContent": only_main_content,
+        }
+        if formats:
+            payload["formats"] = formats
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Start the crawl job
+                async with session.post(
+                    f"{crw_base_url}/v1/crawl",
+                    json=payload,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    start_result = await resp.json()
+
+                    if resp.status != 200 or not start_result.get("success"):
+                        error_msg = start_result.get("error", f"CRW crawl failed with status {resp.status}")
+                        return json.dumps({"success": False, "error": error_msg}, ensure_ascii=False)
+
+                    job_id = start_result.get("id")
+                    if not job_id:
+                        return json.dumps({"success": False, "error": "No job ID returned from CRW"}, ensure_ascii=False)
+
+                # Poll for completion (up to 60 seconds)
+                max_polls = 30
+                for _ in range(max_polls):
+                    await asyncio.sleep(2)
+                    async with session.get(
+                        f"{crw_base_url}/v1/crawl/{job_id}",
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as status_resp:
+                        if status_resp.status != 200:
+                            raw_body = await status_resp.text()
+                            return json.dumps(
+                                {"success": False, "error": f"CRW crawl status check failed with status {status_resp.status}", "body": raw_body},
+                                ensure_ascii=False,
+                            )
+                        status_result = await status_resp.json()
+                        status = status_result.get("status", "")
+
+                        if status == "completed":
+                            return json.dumps(status_result, indent=2, ensure_ascii=False)
+                        elif status == "failed":
+                            return json.dumps(
+                                {"success": False, "error": "Crawl job failed", "details": status_result},
+                                ensure_ascii=False,
+                            )
+
+                # If still running after timeout, return the job info
+                return json.dumps(
+                    {
+                        "success": True,
+                        "status": "still_running",
+                        "job_id": job_id,
+                        "message": f"Crawl is still in progress. Check status at GET {crw_base_url}/v1/crawl/{job_id}",
+                    },
+                    ensure_ascii=False,
+                )
+
+        except Exception as e:
+            logger.error(f"CRW crawl failed for URL '{url}': {str(e)}")
+            return json.dumps({"success": False, "error": f"CRW crawl failed: {str(e)}"}, ensure_ascii=False)
+
+    @trace_method
+    async def crw_map(
+        self,
+        agent_state: "AgentState",
+        url: str,
+        max_depth: int = 2,
+        use_sitemap: bool = True,
+    ) -> str:
+        """
+        Discover all URLs on a website using CRW.
+
+        Args:
+            agent_state: The current agent state.
+            url: The URL to discover links from.
+            max_depth: Maximum discovery depth.
+            use_sitemap: Whether to read sitemap.xml.
+
+        Returns:
+            JSON-encoded string with discovered URLs.
+        """
+        import aiohttp
+        from urllib.parse import urlparse
+
+        # Validate URL scheme - only HTTP and HTTPS are supported
+        parsed_url = urlparse(url)
+        if parsed_url.scheme.lower() not in ("http", "https"):
+            return json.dumps(
+                {"success": False, "error": f"Invalid URL scheme '{parsed_url.scheme}'. Only 'http' and 'https' URLs are supported."},
+                ensure_ascii=False,
+            )
+
+        crw_base_url, headers = self._get_crw_config(agent_state)
+
+        payload = {
+            "url": url,
+            "maxDepth": max_depth,
+            "useSitemap": use_sitemap,
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{crw_base_url}/v1/map",
+                    json=payload,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=120),
+                ) as resp:
+                    result = await resp.json()
+
+                    if resp.status != 200:
+                        error_msg = result.get("error", f"CRW map failed with status {resp.status}")
+                        return json.dumps({"success": False, "error": error_msg}, ensure_ascii=False)
+
+                    return json.dumps(result, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            logger.error(f"CRW map failed for URL '{url}': {str(e)}")
+            return json.dumps({"success": False, "error": f"CRW map failed: {str(e)}"}, ensure_ascii=False)

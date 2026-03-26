@@ -41,6 +41,7 @@ LETTA_MULTI_AGENT_TOOL_MODULE_NAME = "letta.functions.function_sets.multi_agent"
 LETTA_VOICE_TOOL_MODULE_NAME = "letta.functions.function_sets.voice"
 LETTA_BUILTIN_TOOL_MODULE_NAME = "letta.functions.function_sets.builtin"
 LETTA_FILES_TOOL_MODULE_NAME = "letta.functions.function_sets.files"
+LETTA_WEB_SCRAPING_TOOL_MODULE_NAME = "letta.functions.function_sets.web_scraping"
 
 LETTA_TOOL_MODULE_NAMES = [
     LETTA_CORE_TOOL_MODULE_NAME,
@@ -48,6 +49,7 @@ LETTA_TOOL_MODULE_NAMES = [
     LETTA_VOICE_TOOL_MODULE_NAME,
     LETTA_BUILTIN_TOOL_MODULE_NAME,
     LETTA_FILES_TOOL_MODULE_NAME,
+    LETTA_WEB_SCRAPING_TOOL_MODULE_NAME,
 ]
 
 DEFAULT_ORG_ID = "org-00000000-0000-4000-8000-000000000000"
@@ -162,7 +164,7 @@ MEMORY_TOOLS_LINE_NUMBER_PREFIX_REGEX = re.compile(
 )
 
 # Built in tools
-BUILTIN_TOOLS = ["run_code", "run_code_with_tools", "web_search", "fetch_webpage"]
+BUILTIN_TOOLS = ["run_code", "run_code_with_tools", "web_search", "fetch_webpage", "crw_scrape", "crw_crawl", "crw_map"]
 
 # Built in tools
 FILES_TOOLS = ["open_files", "grep_files", "semantic_search_files"]
@@ -190,6 +192,9 @@ LETTA_PARALLEL_SAFE_TOOLS = {
     "run_code",
     "web_search",
     "fetch_webpage",
+    "crw_scrape",
+    "crw_crawl",
+    "crw_map",
     "grep_files",
     "semantic_search_files",
 }

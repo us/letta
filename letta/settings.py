@@ -31,6 +31,10 @@ class ToolSettings(BaseSettings):
     tavily_api_key: str | None = Field(default=None, description="API key for using Tavily as a search provider.")
     exa_api_key: str | None = Field(default=None, description="API key for using Exa as a search provider.")
 
+    # Web Scraping (CRW)
+    crw_base_url: str | None = Field(default=None, description="Base URL for CRW web scraper (e.g., http://localhost:3000).")
+    crw_api_key: str | None = Field(default=None, description="API key for CRW web scraper (optional, depends on CRW config).")
+
     # Local Sandbox configurations
     tool_exec_dir: Optional[str] = None
     tool_sandbox_timeout: float = 180
